@@ -34,7 +34,10 @@ image = (
 )
 
 # Volume for caching models and data
-volume = modal.Volume.from_name(f"{APP_NAME}-cache", create=True)
+try:
+    volume = modal.Volume.from_name(f"{APP_NAME}-cache")
+except Exception:
+    volume = None  # Will create on first use
 
 
 # ============ FUNCTIONS ============
