@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Results (leave untracked)
+results.tsv
+run.log
+
+# Models
+*.pt
+*.pth
+*.ckpt
+
+# Data
+data/
+~/.cache/autoresearch-waste/
+
+# OS
+.DS_Store
+Thumbs.db
