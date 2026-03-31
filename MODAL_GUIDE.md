@@ -23,6 +23,9 @@ import os
 # Create the Modal app
 app = modal.App("autoresearch-waste")
 
+# NOTE: Replace YOUR_USERNAME below with your actual GitHub username
+GITHUB_REPO = "https://github.com/T9ner/autoresearch-waste.git"
+
 # Image with dependencies
 image = (
     modal.Image.from_registry("pytorch/pytorch:2.1.0-cuda12.1-cudnn9-devel")
@@ -39,7 +42,7 @@ def run_experiment():
     import subprocess
     
     # Clone the autoresearch-waste repo
-    subprocess.run(["git", "clone", "https://github.com/YOUR_USERNAME/autoresearch-waste.git"], check=True)
+    subprocess.run(["git", "clone", "https://github.com/T9ner/autoresearch-waste.git"], check=True)
     os.chdir("autoresearch-waste")
     
     # Sync dependencies
@@ -60,7 +63,7 @@ def run_overnight():
     from datetime import datetime
     
     # Clone repo
-    subprocess.run(["git", "clone", "https://github.com/YOUR_USERNAME/autoresearch-waste.git"], check=True)
+    subprocess.run(["git", "clone", "https://github.com/T9ner/autoresearch-waste.git"], check=True)
     os.chdir("autoresearch-waste")
     subprocess.run(["uv", "sync"], check=True)
     
