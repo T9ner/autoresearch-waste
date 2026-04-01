@@ -51,13 +51,13 @@ LABEL_MAP = {
     # 0: E-Waste
     "battery": 0, "batteries": 0, "electronic": 0, "electronics": 0, "phone": 0, 
     "mobile": 0, "laptop": 0, "computer": 0, "monitor": 0, "tv": 0, "gpu": 0, "cpu": 0,
-    "circuit": 0, "wire": 0, "cable": 0,
+    "circuit": 0, "wire": 0, "cable": 0, "e-waste": 0, "hazardous": 0,
     
     # 1: Recyclable (Plastic, Metal, Glass, Paper, Cardboard)
     "plastic": 1, "pet": 1, "hdpe": 1, "bottle": 1, "container": 1, "wrapper": 1,
     "glass": 1, "cup": 1, "jar": 1, "metal": 1, "can": 1, "aluminum": 1, "tin": 1,
     "paper": 1, "cardboard": 1, "box": 1, "newspaper": 1, "magazine": 1, "recyclable": 1,
-    "non-organic": 1, "inorganic": 1,
+    "non-organic": 1, "inorganic": 1, "trash": 1, "clothes": 1, "shoes": 1,
     
     # 2: Organic
     "organic": 2, "food": 2, "fruit": 2, "vegetable": 2, "leaf": 2, "leaves": 2,
@@ -102,16 +102,16 @@ class BaseWasteDataset(torch.utils.data.Dataset):
         return base + np.random.normal(0, 0.05)
 
 class HFWasteDataset(BaseWasteDataset):
-    def __init__(self, hf_dataset, image_size=224, is_train=True):
+    def __init__(self, hf_dataset, image_size=224, is_train=True, label_key=None):
         super().__init__(image_size, is_train)
         self.dataset = hf_dataset
+        self.label_key_override = label_key
         # Try to extract class names for indexed labels
         self.class_names = None
         try:
-            if 'label' in hf_dataset.features:
-                self.class_names = hf_dataset.features['label'].names
-            elif 'labels' in hf_dataset.features:
-                self.class_names = hf_dataset.features['labels'].names
+            detect_key = label_key or ('label' if 'label' in hf_dataset.features else 'labels')
+            if detect_key in hf_dataset.features:
+                self.class_names = hf_dataset.features[detect_key].names
         except:
             pass
     
@@ -120,10 +120,16 @@ class HFWasteDataset(BaseWasteDataset):
     def __getitem__(self, idx):
         item = self.dataset[idx]
         img_key = 'image' if 'image' in item else 'img'
-        label_key = 'label' if 'label' in item else 'labels'
         
         img = self.process_image(item.get(img_key))
         if img is None: img = torch.zeros(3, self.image_size, self.image_size)
+
+        if self.label_key_override and self.label_key_override in item:
+            label_key = self.label_key_override
+        elif 'label' in item:
+            label_key = 'label'
+        else:
+            label_key = 'labels'
         
         raw_label = item.get(label_key, "unknown")
         # If label is an index, try to resolve to name
@@ -189,34 +195,44 @@ def get_dataloaders(config):
 
     # 1. HuggingFace Sources - Verified Working
     hf_sources = [
-        "omasteam/waste-garbage-management-dataset",
-        "huaweilin/waste-classification",
-        "NeoAivara/Waste_Classification_data"
+        {"name": "omasteam/waste-garbage-management-dataset", "split": "train"},
+        {"name": "huaweilin/waste-classification", "split": "cleaned", "label_key": "subclass"},
+        {"name": "NeoAivara/Waste_Classification_data", "split": "train"},
     ]
     
     for source in hf_sources:
         try:
-            print(f"Loading HF: {source}...")
+            print(f"Loading HF: {source['name']}...")
             # Removed trust_remote_code as it's causing issues/warnings in some environments
-            ds = load_dataset(source, split="train")
+            ds = load_dataset(source["name"], split=source["split"])
             # Limit to 2000 per source to keep it balanced and fast
             subset = ds.select(range(min(len(ds), 2000)))
-            all_datasets.append(HFWasteDataset(subset, config.image_size))
+            all_datasets.append(HFWasteDataset(
+                subset, config.image_size,
+                label_key=source.get("label_key"),
+            ))
         except Exception as e:
-            print(f"Skipping {source}: {e}")
+            print(f"Skipping {source['name']}: {e}")
 
-    # 2. Kaggle Sources
+    # 2. Kaggle Sources (requires KAGGLE_USERNAME and KAGGLE_KEY env vars)
     if "KAGGLE_USERNAME" in os.environ:
-        kaggle_slug = "asdasdasasdas/garbage-classification"
-        if download_kaggle_dataset(kaggle_slug, config.data_dir / "kaggle_garbage"):
-            # The structure is usually /kaggle_garbage/Garbage classification/Garbage classification/...
-            # We need to find the actual class directories
-            search_dir = config.data_dir / "kaggle_garbage"
-            # Find first directory that contains subdirectories
-            for d in search_dir.rglob("*"):
-                if d.is_dir() and any(sd.is_dir() for sd in d.iterdir()):
-                    all_datasets.append(KaggleWasteDataset(d, config.image_size))
-                    break
+        kaggle_sources = [
+            {
+                "slug": "asdasdasasdas/garbage-classification",
+                "dir_name": "kaggle_garbage",
+            },
+            {
+                "slug": "isaacritharson/metal-glassgarbage-classification-data",
+                "dir_name": "kaggle_waste_materials",
+            },
+        ]
+        for ks in kaggle_sources:
+            target = config.data_dir / ks["dir_name"]
+            if download_kaggle_dataset(ks["slug"], target):
+                for d in target.rglob("*"):
+                    if d.is_dir() and any(sd.is_dir() for sd in d.iterdir()):
+                        all_datasets.append(KaggleWasteDataset(d, config.image_size))
+                        break
 
     if not all_datasets:
         print("WARNING: No datasets found. Using high-quality synthetic data.")
