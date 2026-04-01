@@ -30,10 +30,22 @@ image = (
 # Volume for caching models and data
 volume = modal.Volume.from_name("autoresearch-waste-cache", create_if_missing=True)
 
+try:
+    available_secrets = {secret.name for secret in modal.Secret.objects.list()}
+except Exception:
+    available_secrets = set()
+
+kaggle_secret = (
+    modal.Secret.from_name("kaggle-credentials")
+    if "kaggle-credentials" in available_secrets
+    else modal.Secret.from_dict({})
+)
+
 @app.function(
     image=image,
     gpu=GPU_TYPE,
     volumes={"/root/.cache/autoresearch-waste": volume},
+    secrets=[kaggle_secret],
     timeout=TIME_BUDGET + 120,
 )
 def run_single_experiment():

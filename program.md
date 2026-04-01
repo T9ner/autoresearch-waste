@@ -6,7 +6,7 @@ This is an autonomous research experiment for optimizing waste classification in
 
 You are helping optimize an AI model that classifies waste into 3 categories:
 - **E-waste** (class 0): batteries, phones, electronics, laptops
-- **Plastic** (class 1): plastic bottles, containers, wrappers, glass, metal, paper
+- **Recyclable** (class 1): plastic bottles, containers, wrappers, glass, metal, paper
 - **Organic** (class 2): food waste, compost
 
 The goal is to maximize classification accuracy AND yield prediction accuracy.
@@ -108,11 +108,18 @@ LOOP FOREVER:
 
 ## Datasets
 
-The agent should utilize available waste classification datasets:
-- `NeoAivara/Waste_Classification_data` — 10-class waste images
-- `bryandts/waste_organic_anorganic_classification` — organic/inorganic
+The agent should utilize available waste classification datasets.
 
-Map all labels to 3 categories: e-waste (0), plastic (1), organic (2).
+**HuggingFace (always available):**
+- `omasteam/waste-garbage-management-dataset` — 10-class waste images (split: `train`)
+- `huaweilin/waste-classification` — hierarchical waste labels with subclass detail (split: `cleaned`, label field: `subclass`)
+- `NeoAivara/Waste_Classification_data` — 12-class waste images (split: `train`)
+
+**Kaggle (requires credentials):**
+- `asdasdasasdas/garbage-classification` — 6-class garbage images (cardboard, glass, metal, paper, plastic, trash)
+- `isaacritharson/metal-glassgarbage-classification-data` — glass, metals, cardboard waste
+
+Map all labels to 3 categories: e-waste (0), recyclable (1), organic (2).
 
 ## Notes
 
