@@ -1,58 +1,59 @@
 # Autoresearch for Waste Classification
 
-Autonomous AI research agent for optimizing waste classification models. Modified from karpathy/autoresearch for recycling in Nigeria.
+Autonomous AI research agent for optimizing waste classification models. Built on the [autoresearch](https://github.com/karpathy/autoresearch) pattern, adapted for waste/recycling in Nigeria.
 
 ## What It Does
 
-An AI agent autonomously experiments with computer vision models to classify waste (e-waste, plastic, organic) and predict yield percentage. It modifies `train.py`, runs experiments, checks metrics, and iterates overnight.
+An AI coding agent autonomously experiments with computer vision models to classify waste into 3 categories:
+- **E-waste** (class 0): batteries, phones, electronics
+- **Recyclable** (class 1): plastic, glass, metal, paper
+- **Organic** (class 2): food waste, compost
+
+The agent modifies `train.py`, runs experiments on HF Jobs GPUs, checks metrics, and iterates — indefinitely.
 
 ## Project Structure
 
 ```
-prepare.py      — fixed data loading, evaluation (DO NOT MODIFY)
-train.py        — model, training loop (AGENT MODIFIES THIS)
-program.md      — agent instructions (HUMAN MODIFIES THIS)
-data/           — downloaded datasets
-results.tsv     — experiment log
+train.py        — model, training loop, data loading (AGENT MODIFIES THIS)
+prepare.py      — fixed evaluation reference (DO NOT MODIFY)
+program.md      — agent instructions
+results.tsv     — experiment log (untracked)
 ```
 
 ## Quick Start
 
 ```bash
-# 1. Install uv if needed
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# 1. Install hf CLI
+curl -LsSf https://hf.co/cli/install.sh | bash
+hf auth login
 
-# 2. Install dependencies
-uv sync
-
-# 3. Download datasets
-uv run prepare.py
-
-# 4. Test single run
+# 2. Test single run locally
 uv run train.py
+
+# 3. Test on HF Jobs (A100 GPU)
+hf jobs uv run --flavor a100-large --timeout 10m train.py
 ```
 
 ## Running the Agent
 
-```bash
-# Create a new experiment branch
-git checkout -b autoresearch/waste-exp1
-
-# Run agent with program.md instructions
-# Point your coding agent (Claude, Codex) at program.md
-```
+1. Create experiment branch: `git checkout -b autoresearch/<tag>`
+2. Point your AI coding agent at `program.md`
+3. The agent handles everything: research, code changes, GPU runs, evaluation
 
 ## Metrics
 
-- **classification_accuracy**: Top-1 accuracy on waste classification (higher is better)
-- **yield_prediction_mse**: Mean squared error for yield prediction (lower is better)
-- **combined_score**: Weighted combination: accuracy - 0.1 * yield_mse
+- **val_accuracy**: Top-1 accuracy on waste classification (higher is better)
+- **yield_mse**: Mean squared error for yield prediction (lower is better)
+- **combined_score**: `accuracy - 0.1 * yield_mse`
 
-## Datasets Used
+## Datasets
 
-- `NeoAivara/Waste_Classification_data` — 10-class waste images
-- `bryandts/waste_organic_anorganic_classification` — organic/inorganic
-- `electricsheepafrica/african-e-waste-flows` — context data
+Data loads automatically via HuggingFace `datasets`:
+- `omasteam/waste-garbage-management-dataset`
+- `huaweilin/waste-classification`
+- `NeoAivara/Waste_Classification_data`
+
+Optional Kaggle sources available with credentials.
 
 ## License
 
