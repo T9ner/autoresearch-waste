@@ -4,7 +4,7 @@ import modal
 
 APP_NAME = "autoresearch-waste"
 GPU_TYPE = "t4"
-TIME_BUDGET = 600
+TIME_BUDGET = 1800  # 30 minutes (generous for first-run dataset downloads; cached runs are ~5 min)
 
 app = modal.App(APP_NAME)
 
@@ -41,7 +41,6 @@ def train():
         ["python", "/root/train.py"],
         capture_output=True,
         text=True,
-        timeout=TIME_BUDGET,
     )
     if result.stdout:
         print(result.stdout, end="")
