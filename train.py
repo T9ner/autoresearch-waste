@@ -1,3 +1,13 @@
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "torch>=2.0.0",
+#     "torchvision>=0.15.0",
+#     "datasets>=2.14.0",
+#     "Pillow>=10.0.0",
+#     "numpy>=1.24.0",
+# ]
+# ///
 """
 Waste Classification Training Script - Deep Refactor
 This version supports multi-source data ingestion (HF + Kaggle) and robust label unification.
@@ -41,7 +51,7 @@ class Config:
     num_classes: int = 3  # 0: e-waste, 1: recyclable, 2: organic
     predict_yield: bool = True
     yield_weight: float = 0.1
-    data_dir: Path = Path("/root/.cache/autoresearch-waste/data")
+    data_dir: Path = Path("/data" if os.path.isdir("/data") else os.path.expanduser("~/.cache/autoresearch-waste/data"))
 
 # ----------------------------------------------------------------------
 # LABEL UNIFICATION

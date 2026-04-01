@@ -9,48 +9,86 @@ You are helping optimize an AI model that classifies waste into 3 categories:
 - **Recyclable** (class 1): plastic bottles, containers, wrappers, glass, metal, paper
 - **Organic** (class 2): food waste, compost
 
-The goal is to maximize classification accuracy AND yield prediction accuracy.
+The goal is to maximize the combined score:
 
-## Setup
-
-1. **Agree on a run tag**: Propose a tag based on today's date (e.g. `mar31`). The branch `autoresearch/<tag>` must not already exist.
-2. **Create the branch**: `git checkout -b autoresearch/<tag>` from current master.
-3. **Read the in-scope files**:
-   - `README.md` — repository context
-   - `prepare.py` — fixed data loading, evaluation. DO NOT MODIFY.
-   - `train.py` — the file you modify. Model architecture, optimizer, training loop.
-4. **Verify data exists**: Check that datasets can be loaded from HuggingFace. If not, the code should handle gracefully.
-5. **Initialize results.tsv**: Create `results.tsv` with just the header row.
-6. **Confirm and go**: Confirm setup looks good.
-
-## Experimentation
-
-Each experiment runs on a single GPU with a **fixed time budget of 5 minutes**.
-
-**What you CAN do:**
-- Modify `train.py` — this is the only file you edit
-- Change model architecture (resnet18, resnet34, efficientnet_b0, vit, etc.)
-- Modify hyperparameters (learning rate, batch size, weight decay)
-- Change image size, data augmentation
-- Add or remove components (yield prediction head, auxiliary losses)
-- Try different pretrained backbones
-- Modify the training loop
-
-**What you CANNOT do:**
-- Modify `prepare.py`. It is read-only.
-- Install new packages beyond what's in pyproject.toml.
-- Modify the evaluation harness.
-
-**The goal**: Maximize the combined score:
 ```
 combined_score = classification_accuracy - 0.1 * yield_prediction_mse
 ```
 
-Higher accuracy is always good. Lower yield MSE is always good.
+Higher classification accuracy is better. Lower yield prediction MSE is better.
 
-**VRAM** is a soft constraint — some increase is acceptable for meaningful gains, but don't blow up.
+## Setup
 
-**Simplicity criterion**: All else being equal, simpler is better. A small improvement that adds ugly complexity? Probably not worth it. Removing code and getting equal/better results? Great outcome.
+1. **Agree on a run tag**: Propose a tag based on today's date (for example `apr01`) and create branch `autoresearch/<tag>`.
+2. **Read `train.py`**: This is the only file that matters for experimentation. It is self-contained and declares its dependencies inline for `uv`.
+3. **Read `prepare.py`**: This is the fixed evaluation reference. DO NOT MODIFY.
+4. **Ask the user for an HF Storage Bucket**: For example `hf://buckets/<username>/autoresearch-waste-results`. Use it to save good artifacts and logs.
+5. **Initialize `results.tsv`**: Create it with the header row only.
+6. **Ensure the `hf` CLI is installed and logged in**: Verify `hf auth whoami` works.
+7. **Confirm and go**: Once the setup is valid, begin the experiment loop.
+
+## Running on HF Jobs
+
+Each experiment runs on a single GPU via HF Jobs. Launch training with:
+
+```bash
+hf jobs uv run \
+    --flavor a100-large \
+    --timeout 10m \
+    train.py 2>&1 | tee run.log
+```
+
+- No volume mounts needed — datasets are loaded via the HuggingFace `datasets` library at runtime
+- `train.py` auto-detects GPU and runs with CUDA if available
+- The `--flavor a100-large` provides an A100 GPU (80GB VRAM)
+- The `--timeout 10m` kills the job if it exceeds 10 minutes
+
+## Experimentation
+
+Each experiment should fit within the HF Jobs timeout budget.
+
+**What you CAN do:**
+- Modify `train.py`
+- Change the model architecture
+- Change hyperparameters such as learning rate, batch size, weight decay, epochs
+- Change image size and data augmentation
+- Add or remove components such as the yield prediction head or auxiliary losses
+- Try different pretrained backbones
+- Modify the training loop
+
+**What you CANNOT do:**
+- Modify `prepare.py`
+- Modify the evaluation harness
+- Change the definition of the reported metrics
+
+**The goal**: Maximize the combined score:
+
+```
+combined_score = classification_accuracy - 0.1 * yield_prediction_mse
+```
+
+**VRAM** is a soft constraint. Some increase is acceptable for meaningful gains, but avoid wasteful blowups.
+
+**Simplicity criterion**: All else being equal, simpler is better. A tiny gain that adds ugly complexity is usually not worth it. If you can remove code and keep or improve performance, that is a good outcome.
+
+## Research with `hf papers`
+
+Before each experiment, use `hf papers` to find ideas from recent research.
+
+```bash
+# Search for relevant techniques
+hf papers search "waste classification deep learning"
+hf papers search "image classification transfer learning"
+hf papers search "data augmentation computer vision"
+hf papers search "efficient resnet training"
+```
+
+```bash
+# Read a promising paper
+hf papers read <paper_id>
+```
+
+Use papers as inspiration, not as scripts to copy mechanically. Prefer ideas that are simple to implement inside `train.py` and plausible under the runtime budget.
 
 ## Output Format
 
@@ -62,10 +100,10 @@ yield_mse:       0.0234
 combined_score:  85.27
 training_seconds: 298.5
 peak_vram_mb:    4120.5
-num_params_M:   11.2
 ```
 
 Extract from log:
+
 ```bash
 grep "^val_accuracy:\|^yield_mse:\|^combined_score:" run.log
 ```
@@ -75,55 +113,58 @@ grep "^val_accuracy:\|^yield_mse:\|^combined_score:" run.log
 Log to `results.tsv` (tab-separated):
 
 ```
-commit	accuracy	yield_mse	combined_score	memory_gb	status	description
+commit	val_accuracy	yield_mse	combined_score	memory_gb	status	paper	description
 ```
 
 Example:
+
 ```
-a1b2c3d	85.50	0.0234	85.27	4.0	keep	baseline resnet18
-b2c3d4e	87.20	0.0210	87.01	4.2	keep	switch to efficientnet_b0
-c3d4e5f	86.80	0.0195	86.60	5.1	keep	add yield prediction head
-d4e5f6g	0.00	0.0000	0.00	0.0	crash	vit vision transformer OOM
+a1b2c3d	85.50	0.0234	85.27	4.0	keep	-	baseline resnet18
+b2c3d4e	87.20	0.0210	87.01	4.2	keep	2503.08234	efficientnet_b0 from paper
+c3d4e5f	86.80	0.0195	86.60	5.1	keep	-	stronger augmentation
+d4e5f6g	0.00	0.0000	0.00	0.0	crash	-	vit OOM
 ```
 
 ## Experiment Loop
 
-LOOP FOREVER:
+Repeat forever:
 
-1. Look at the git state: current branch/commit
-2. Tune `train.py` with an experimental idea
-3. git commit
-4. Run experiment: `uv run train.py > run.log 2>&1`
-5. Read results: `grep "^val_accuracy:\|^yield_mse:\|^combined_score:\|^peak_vram_mb:" run.log`
-6. If grep output is empty, the run crashed. Read `tail -n 50 run.log` for errors. Fix or skip.
-7. Record results in tsv (leave tsv untracked by git)
-8. If combined_score improved, keep the commit
-9. If combined_score is equal or worse, git reset back
+1. Research with `hf papers search` and identify one promising idea
+2. Implement the idea by modifying `train.py`
+3. Commit the change with `git commit`
+4. Run the experiment:
+   ```bash
+   hf jobs uv run --flavor a100-large --timeout 10m train.py 2>&1 | tee run.log
+   ```
+5. Evaluate the run by reading the reported metrics
+6. Log the result to `results.tsv`
+7. If `combined_score` improved, keep the commit and save useful artifacts to the HF Storage Bucket
+8. If the score is worse or equal, revert with `git reset --hard HEAD^`
+9. Continue to the next experiment immediately
 
-**Timeout**: If run exceeds 10 minutes, kill and treat as failure.
+If the metric grep output is empty, the run crashed. Inspect the log, decide whether the failure is fixable, and either retry with a minimal fix or log a crash and move on.
 
-**Crashes**: If OOM or bug, use judgment — easy fix? Retry. Fundamentally broken? Skip, log "crash", move on.
-
-**NEVER STOP**: Once the loop begins, do NOT ask the human to continue. You are autonomous. If you run out of ideas, think harder. Try different architectures, combine previous near-misses, try radical changes. Run until interrupted.
+**NEVER STOP**: Once the loop begins, do not ask the human whether to continue. Keep researching, implementing, running, evaluating, and iterating until interrupted.
 
 ## Datasets
 
-The agent should utilize available waste classification datasets.
+The training script loads data via the HuggingFace `datasets` library. No manual setup needed.
 
 **HuggingFace (always available):**
 - `omasteam/waste-garbage-management-dataset` — 10-class waste images (split: `train`)
-- `huaweilin/waste-classification` — hierarchical waste labels with subclass detail (split: `cleaned`, label field: `subclass`)
+- `huaweilin/waste-classification` — hierarchical waste labels (split: `cleaned`, label field: `subclass`)
 - `NeoAivara/Waste_Classification_data` — 12-class waste images (split: `train`)
 
-**Kaggle (requires credentials):**
-- `asdasdasasdas/garbage-classification` — 6-class garbage images (cardboard, glass, metal, paper, plastic, trash)
-- `isaacritharson/metal-glassgarbage-classification-data` — glass, metals, cardboard waste
+**Kaggle (optional, requires credentials in environment):**
+- `asdasdasasdas/garbage-classification` — 6-class garbage images
+- `isaacritharson/metal-glassgarbage-classification-data` — glass, metals, cardboard
 
-Map all labels to 3 categories: e-waste (0), recyclable (1), organic (2).
+All labels are mapped to 3 categories: e-waste (0), recyclable (1), organic (2).
 
 ## Notes
 
 - The model classifies images, not text
-- ImageNet-pretrained backbones work well for transfer learning
-- Start with a baseline (resnet18), then iterate
-- 5 minutes = ~12 experiments/hour, ~100 overnight
+- `train.py` already handles HuggingFace datasets directly at runtime
+- Kaggle data is optional and should be skipped gracefully if credentials are unavailable
+- ImageNet-pretrained backbones are good defaults
+- Start from a strong baseline, then iterate
