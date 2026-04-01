@@ -10,6 +10,11 @@ This guide shows how to run your waste classification autoresearch on Modal's cl
 ```bash
 pip install modal
 modal token new
+
+# (Optional) Setup Kaggle for more data:
+# 1. Go to Kaggle > Account > Create New API Token
+# 2. Run:
+modal secret create kaggle-credentials KAGGLE_USERNAME=your_username KAGGLE_KEY=your_key
 ```
 
 ## Step 2: Create Modal Script
