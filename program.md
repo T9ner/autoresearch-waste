@@ -20,32 +20,29 @@ Higher classification accuracy is better. Lower yield prediction MSE is better.
 ## Setup
 
 1. **Agree on a run tag**: Propose a tag based on today's date (for example `apr01`) and create branch `autoresearch/<tag>`.
-2. **Read `train.py`**: This is the only file that matters for experimentation. It is self-contained and declares its dependencies inline for `uv`.
+2. **Read `train.py`**: This is the only file you modify during experimentation. It is self-contained and declares its dependencies inline for `uv`.
 3. **Read `prepare.py`**: This is the fixed evaluation reference. DO NOT MODIFY.
-4. **Ask the user for an HF Storage Bucket**: For example `hf://buckets/<username>/autoresearch-waste-results`. Use it to save good artifacts and logs.
-5. **Initialize `results.tsv`**: Create it with the header row only.
-6. **Ensure the `hf` CLI is installed and logged in**: Verify `hf auth whoami` works.
+4. **Verify Modal is configured**: Run `modal token new` if needed so `modal run` works.
+5. **Test a single run**: Confirm the stack works with `modal run modal_app.py`.
+6. **Initialize `results.tsv`**: Create it with the header row only.
 7. **Confirm and go**: Once the setup is valid, begin the experiment loop.
 
-## Running on HF Jobs
+## Running on Modal
 
-Each experiment runs on a single GPU via HF Jobs. Launch training with:
+Each experiment runs on a T4 GPU via Modal. Launch training with:
 
 ```bash
-hf jobs uv run \
-    --flavor a100-large \
-    --timeout 10m \
-    train.py 2>&1 | tee run.log
+modal run modal_app.py 2>&1 | tee run.log
 ```
 
-- No volume mounts needed — datasets are loaded via the HuggingFace `datasets` library at runtime
-- `train.py` auto-detects GPU and runs with CUDA if available
-- The `--flavor a100-large` provides an A100 GPU (80GB VRAM)
-- The `--timeout 10m` kills the job if it exceeds 10 minutes
+- `modal_app.py` automatically uploads the current `train.py` to the Modal container
+- Training runs on a T4 GPU with a 10-minute timeout
+- Downloaded datasets are cached on a persistent Modal volume between runs
+- Kaggle credentials are injected automatically if you've set them up with `modal secret create kaggle-credentials`
 
 ## Experimentation
 
-Each experiment should fit within the HF Jobs timeout budget.
+Each experiment should fit within the Modal timeout budget.
 
 **What you CAN do:**
 - Modify `train.py`
@@ -105,7 +102,7 @@ peak_vram_mb:    4120.5
 Extract from log:
 
 ```bash
-grep "^val_accuracy:\|^yield_mse:\|^combined_score:" run.log
+grep "^val_accuracy:\|^yield_mse:\|^combined_score:\|^training_seconds:\|^peak_vram_mb:" run.log
 ```
 
 ## Logging Results
@@ -134,11 +131,11 @@ Repeat forever:
 3. Commit the change with `git commit`
 4. Run the experiment:
    ```bash
-   hf jobs uv run --flavor a100-large --timeout 10m train.py 2>&1 | tee run.log
+   modal run modal_app.py 2>&1 | tee run.log
    ```
 5. Evaluate the run by reading the reported metrics
 6. Log the result to `results.tsv`
-7. If `combined_score` improved, keep the commit and save useful artifacts to the HF Storage Bucket
+7. If `combined_score` improved, keep the commit
 8. If the score is worse or equal, revert with `git reset --hard HEAD^`
 9. Continue to the next experiment immediately
 
@@ -168,3 +165,5 @@ All labels are mapped to 3 categories: e-waste (0), recyclable (1), organic (2).
 - Kaggle data is optional and should be skipped gracefully if credentials are unavailable
 - ImageNet-pretrained backbones are good defaults
 - Start from a strong baseline, then iterate
+- Cost: T4 GPU at ~$0.005/min, or about ~$0.025 per 5-minute experiment, which is roughly 1000 experiments with $30 credit
+- If you want faster runs, change `GPU_TYPE` in `modal_app.py` to `"a100"` (more expensive)

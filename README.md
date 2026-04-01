@@ -9,12 +9,13 @@ An AI coding agent autonomously experiments with computer vision models to class
 - **Recyclable** (class 1): plastic, glass, metal, paper
 - **Organic** (class 2): food waste, compost
 
-The agent modifies `train.py`, runs experiments on HF Jobs GPUs, checks metrics, and iterates — indefinitely.
+The agent modifies `train.py`, runs experiments on Modal GPUs, checks metrics, and iterates — indefinitely.
 
 ## Project Structure
 
-```
+```text
 train.py        — model, training loop, data loading (AGENT MODIFIES THIS)
+modal_app.py    — Modal GPU runner (submits train.py to cloud GPU)
 prepare.py      — fixed evaluation reference (DO NOT MODIFY)
 program.md      — agent instructions
 results.tsv     — experiment log (untracked)
@@ -23,22 +24,25 @@ results.tsv     — experiment log (untracked)
 ## Quick Start
 
 ```bash
-# 1. Install hf CLI
-curl -LsSf https://hf.co/cli/install.sh | bash
-hf auth login
+# 1. Install Modal CLI
+pip install modal
+modal token new
 
-# 2. Test single run locally
+# 2. (Optional) Add Kaggle credentials for extra data
+modal secret create kaggle-credentials KAGGLE_USERNAME=your_username KAGGLE_KEY=your_key
+
+# 3. Test single run locally (CPU)
 uv run train.py
 
-# 3. Test on HF Jobs (A100 GPU)
-hf jobs uv run --flavor a100-large --timeout 10m train.py
+# 4. Test on Modal (T4 GPU)
+modal run modal_app.py
 ```
 
 ## Running the Agent
 
 1. Create experiment branch: `git checkout -b autoresearch/<tag>`
 2. Point your AI coding agent at `program.md`
-3. The agent handles everything: research, code changes, GPU runs, evaluation
+3. The agent handles everything: research via `hf papers`, code changes, Modal GPU runs, evaluation
 
 ## Metrics
 
@@ -54,6 +58,13 @@ Data loads automatically via HuggingFace `datasets`:
 - `NeoAivara/Waste_Classification_data`
 
 Optional Kaggle sources available with credentials.
+
+## Cost
+
+With Modal's $30 free trial:
+- T4 GPU: ~$0.005/min
+- 5-minute experiment: ~$0.025
+- **~1000 experiments with $30 credit**
 
 ## License
 
