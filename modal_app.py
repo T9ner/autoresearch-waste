@@ -24,6 +24,7 @@ image = (
         "Pillow", 
         "numpy"
     )
+    .add_local_dir(Path(__file__).resolve().parent, remote_path="/root/autoresearch-waste")
 )
 
 # Volume for caching models and data
@@ -33,7 +34,6 @@ volume = modal.Volume.from_name("autoresearch-waste-cache", create_if_missing=Tr
     image=image,
     gpu=GPU_TYPE,
     volumes={"/root/.cache/autoresearch-waste": volume},
-    secrets=[modal.Secret.from_name("kaggle-credentials")],
     timeout=TIME_BUDGET + 120,
 )
 def run_single_experiment():
@@ -41,6 +41,7 @@ def run_single_experiment():
     Run a single training session on the current state of the local train.py.
     """
     import os
+    os.chdir("/root/autoresearch-waste")
     
     # We use local-file mounting to ensure the cloud always has the latest train.py
     # This function is triggered by local_manager.py after a code tweak.
@@ -70,12 +71,17 @@ def run_single_experiment():
         accuracy = 0.0
         yield_mse = 0.0
         for line in result.stdout.split("\n"):
-            if "val_accuracy:" in line:
-                try: accuracy = float(line.split(":")[1].strip())
-                except: pass
-            if "yield_mse:" in line:
-                try: yield_mse = float(line.split(":")[1].strip())
-                except: pass
+            stripped = line.strip()
+            if stripped.startswith("val_accuracy:"):
+                try:
+                    accuracy = float(stripped.split(":", 1)[1].strip())
+                except Exception:
+                    pass
+            if stripped.startswith("yield_mse:"):
+                try:
+                    yield_mse = float(stripped.split(":", 1)[1].strip())
+                except Exception:
+                    pass
 
         print(f"\nFinal Accuracy: {accuracy:.4f}")
         print(f"Final Yield MSE: {yield_mse:.4f}")

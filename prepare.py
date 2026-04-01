@@ -5,7 +5,7 @@ Fixed constants and evaluation - DO NOT MODIFY.
 
 import os
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import ConcatDataset, DataLoader, Dataset
 from PIL import Image
 import numpy as np
 from datasets import load_dataset
@@ -128,13 +128,17 @@ class WasteDataset(Dataset):
 def make_dataloader(split='train', batch_size=DEVICE_BATCH_SIZE):
     """Create dataloader for training or validation."""
     waste_ds, organic_ds = load_waste_datasets()
-    
-    # For now, combine available data
-    # In production, you'd properly merge datasets
-    
-    # This is a simplified version - actual implementation would
-    # download and preprocess the HuggingFace datasets
-    raise NotImplementedError("Dataset preparation needs to be completed")
+    datasets_list = []
+    if waste_ds:
+        datasets_list.append(WasteDataset(waste_ds))
+    if organic_ds:
+        datasets_list.append(WasteDataset(organic_ds))
+
+    if not datasets_list:
+        raise RuntimeError("No datasets available")
+
+    combined = ConcatDataset(datasets_list)
+    return DataLoader(combined, batch_size=batch_size, shuffle=(split == 'train'), num_workers=0)
 
 
 def evaluate_model(model, dataloader, device):
@@ -142,11 +146,10 @@ def evaluate_model(model, dataloader, device):
     model.eval()
     correct = 0
     total = 0
-    total_loss = 0.0
     
     with torch.no_grad():
         for batch_idx, (images, labels) in enumerate(dataloader):
-            if batch_idx * batch_size >= EVAL_TOKENS:
+            if total >= EVAL_TOKENS:
                 break
                 
             images = images.to(device)

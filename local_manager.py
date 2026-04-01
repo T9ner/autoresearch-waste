@@ -1,60 +1,22 @@
 import os
 import subprocess
-import requests
-import json
 import re
 import argparse
 import time
 from pathlib import Path
 
 # ============ CONFIGURATION ============
-OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 DEFAULT_MODEL = "llama3.1:latest"
 MODAL_APP_CMD = ["modal", "run", "modal_app.py::run_single_experiment"]
 OLLAMA_TIMEOUT = 600
 
 def consult_ollama(model, current_code, history, rules, last_log):
     """Ask Ollama to propose a code improvement."""
-    prompt = f"""
-{rules}
-
----
-CURRENT train.py:
-{current_code}
-
----
-EXPERIMENTAL HISTORY (results.tsv):
-{history}
-
----
-LAST RUN LOG:
-{last_log}
-
----
-Based on the history and the last run log, suggest a specific, hypothesis-driven change to `train.py` to improve the combined score.
-Output ONLY the full updated python code for `train.py`.
-Do not include markdown code blocks, explanations, or any other text before or after the code.
-"""
-
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-        "options": {
-            "temperature": 0.7,
-            "num_predict": 4096,
-        }
-    }
-
-    print(f"--- Consulting Ollama model: {model} ---")
-    # Simplify prompt: just provide current code and goal
     prompt = f"Improve this waste classification script (train.py) to achieve >95% accuracy. Focus on: {rules[:1000]}... \n\nCURRENT CODE:\n{current_code}\n\nEXPERIMENT HISTORY:\n{history[:500]}\n\nLAST LOG SUMMARY:\n{last_log[-500:]}\n\nTask: Output the FULL updated Python script. Do not explain anything, just give me the code."
 
     try:
-        # Check available models via CLI instead of API tags
         print(f"--- Consulting Ollama (CLI Mode): {model} ---")
         
-        # --- Run CLI directly for better reliability ---
         cli_result = subprocess.run(
             ["ollama", "run", model, prompt],
             capture_output=True,
@@ -92,18 +54,14 @@ Do not include markdown code blocks, explanations, or any other text before or a
     except Exception as e:
         print(f"Error during Ollama consultation: {e}")
         return None
-    except Exception as e:
-        print(f"Error calling Ollama: {e}")
-        return None
 
 def parse_metrics(output):
-    """Extract Accuracy and MSE from the Modal output."""
+    """Extract metrics from the standardized output format."""
     accuracy = 0.0
     yield_mse = 0.0
     
-    # Looking for lines like "Final Accuracy: 0.926" or "Final Yield MSE: 0.123"
-    acc_match = re.search(r"Final Accuracy:\s*([\d\.]+)", output)
-    mse_match = re.search(r"Final Yield MSE:\s*([\d\.]+)", output)
+    acc_match = re.search(r"val_accuracy:\s*([\d\.]+)", output)
+    mse_match = re.search(r"yield_mse:\s*([\d\.]+)", output)
     
     if acc_match:
         accuracy = float(acc_match.group(1))
