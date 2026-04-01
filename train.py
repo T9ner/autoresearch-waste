@@ -17,7 +17,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, ConcatDataset
+from torch.utils.data import DataLoader, ConcatDataset, random_split
 from torchvision import transforms
 from datasets import load_dataset
 
@@ -230,17 +230,37 @@ def get_dataloaders(config):
         all_datasets.append(SyntheticDataset(config.image_size))
 
     combined_ds = ConcatDataset(all_datasets)
-    print(f"Total images gathered: {len(combined_ds)}")
-    
-    loader = DataLoader(
+    total = len(combined_ds)
+    val_size = max(1, int(0.15 * total))
+    train_size = total - val_size
+    if train_size <= 0:
+        train_size = max(1, total - 1)
+        val_size = total - train_size
+
+    train_ds, val_ds = random_split(
         combined_ds,
+        [train_size, val_size],
+        generator=torch.Generator().manual_seed(42),
+    )
+
+    print(f"Total images: {total} (train: {train_size}, val: {val_size})")
+
+    train_loader = DataLoader(
+        train_ds,
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=0,
-        pin_memory=torch.cuda.is_available()
+        pin_memory=torch.cuda.is_available(),
     )
-    
-    return loader, None
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=torch.cuda.is_available(),
+    )
+
+    return train_loader, val_loader
 
 # ----------------------------------------------------------------------
 # MODEL & TRAINING (Simplified for space, matching user's original logic)
@@ -264,17 +284,21 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Booting on {device}")
     
-    train_loader, _ = get_dataloaders(config)
+    train_loader, val_loader = get_dataloaders(config)
     model = WasteClassifier(config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
     criterion = nn.CrossEntropyLoss()
     
     start_time = time.time()
     best_acc = 0.0
+    best_yield_mse = 0.0
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats(device)
     
     for epoch in range(config.num_epochs):
         model.train()
-        correct, total = 0, 0
+        train_correct, train_total = 0, 0
+        train_yield_mse_sum = 0.0
         for images, labels, yields in train_loader:
             images = images.to(device)
             labels = labels.to(device).long()  # Explicit long for CrossEntropy
@@ -282,20 +306,56 @@ def main():
             
             optimizer.zero_grad()
             logits, y_pred = model(images)
-            loss = criterion(logits, labels) + config.yield_weight * F.mse_loss(y_pred, yields)
+            batch_yield_loss = F.mse_loss(y_pred, yields)
+            loss = criterion(logits, labels) + config.yield_weight * batch_yield_loss
             loss.backward()
             optimizer.step()
             
             _, pred = torch.max(logits, 1)
-            total += labels.size(0)
-            correct += (pred == labels).sum().item()
-        
-        acc = 100 * correct / total
-        print(f"Epoch {epoch+1}: Accuracy {acc:.2f}%")
-        best_acc = max(best_acc, acc)
-        
-    print(f"\nFinal Val Accuracy: {best_acc:.2f}")
-    print(f"Training Time: {time.time() - start_time:.1f}s")
+            train_total += labels.size(0)
+            train_correct += (pred == labels).sum().item()
+            train_yield_mse_sum += batch_yield_loss.item() * labels.size(0)
+
+        train_acc = 100 * train_correct / train_total if train_total else 0.0
+        train_yield_mse = train_yield_mse_sum / train_total if train_total else 0.0
+
+        model.eval()
+        val_correct, val_total, val_yield_mse_sum = 0, 0, 0.0
+        with torch.no_grad():
+            for images, labels, yields in val_loader:
+                images = images.to(device)
+                labels = labels.to(device).long()
+                yields = yields.to(device).float()
+                logits, y_pred = model(images)
+                _, pred = torch.max(logits, 1)
+                val_total += labels.size(0)
+                val_correct += (pred == labels).sum().item()
+                val_yield_mse_sum += F.mse_loss(y_pred, yields, reduction="sum").item()
+
+        val_acc = 100 * val_correct / val_total if val_total else 0.0
+        val_yield_mse = val_yield_mse_sum / val_total if val_total else 0.0
+        print(
+            f"Epoch {epoch+1}: Train Acc {train_acc:.2f}%, "
+            f"Train Yield MSE {train_yield_mse:.4f}, "
+            f"Val Acc {val_acc:.2f}%, Yield MSE {val_yield_mse:.4f}"
+        )
+
+        if epoch == 0 or val_acc > best_acc:
+            best_acc = val_acc
+            best_yield_mse = val_yield_mse
+
+    peak_vram_mb = (
+        torch.cuda.max_memory_allocated(device) / (1024 ** 2)
+        if torch.cuda.is_available()
+        else 0.0
+    )
+    training_seconds = time.time() - start_time
+    combined_score = best_acc - 0.1 * best_yield_mse
+    print(f"val_accuracy:     {best_acc:.2f}")
+    print(f"yield_mse:       {best_yield_mse:.4f}")
+    print(f"combined_score:  {combined_score:.2f}")
+    print(f"training_seconds: {training_seconds:.1f}")
+    print(f"peak_vram_mb:    {peak_vram_mb:.1f}")
     return best_acc
 
 if __name__ == "__main__":
