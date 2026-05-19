@@ -142,33 +142,38 @@ def get_dataloaders(config):
     print("Loading datasets...")
     
     try:
-        # Try to loadWaste datasets
         ds1 = load_dataset("NeoAivara/Waste_Classification_data", split="train")
-        ds2 = load_dataset("bryandts/waste_organic_anorganic_classification", split="train")
-        
-        # Use a portion for training
-        train_size = min(len(ds1), 1000)
-        val_size = min(200, len(ds1) - train_size)
-        
-        # Split datasets
-        # Note: In production, properly split with train_test_split
+
+        total = len(ds1)
+        train_size = min(int(total * 0.85), 1000)
+        val_size = min(200, total - train_size)
+
         train_ds = WasteDataset(ds1.select(range(train_size)), config.image_size)
-        
+        val_ds   = WasteDataset(ds1.select(range(train_size, train_size + val_size)), config.image_size)
+        print(f"Dataset loaded: {train_size} train, {val_size} val samples")
+
     except Exception as e:
         print(f"Failed to load datasets: {e}")
         print("Using synthetic data for testing...")
-        # Create dummy dataset for testing
         train_ds = WasteDataset([{'image': None, 'label': 'plastic'}] * 100, config.image_size)
+        val_ds   = WasteDataset([{'image': None, 'label': 'plastic'}] * 20,  config.image_size)
     
     train_loader = DataLoader(
-        train_ds, 
-        batch_size=config.batch_size, 
+        train_ds,
+        batch_size=config.batch_size,
         shuffle=True,
         collate_fn=collate_fn,
-        num_workers=0
+        num_workers=0,
     )
-    
-    return train_loader, None  # Val loader would be similar
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=config.batch_size,
+        shuffle=False,
+        collate_fn=collate_fn,
+        num_workers=0,
+    )
+
+    return train_loader, val_loader
 
 
 # ----------------------------------------------------------------------
@@ -297,24 +302,32 @@ def train_epoch(model, train_loader, optimizer, criterion, config, device, epoch
     return avg_loss, accuracy
 
 
-def evaluate(model, val_loader, device):
-    """Evaluate model."""
+def evaluate(model, val_loader, device, config):
+    """Evaluate model on classification accuracy and yield MSE."""
     model.eval()
     correct = 0
     total = 0
-    
+    yield_se = 0.0
+
     with torch.no_grad():
         for images, labels, yields in val_loader:
             images = images.to(device)
             labels = labels.to(device)
-            
-            class_logits = model(images)
+            yields = yields.to(device)
+
+            if config.predict_yield:
+                class_logits, yield_pred = model(images)
+                yield_se += F.mse_loss(yield_pred, yields, reduction='sum').item()
+            else:
+                class_logits = model(images)
+
             _, predicted = torch.max(class_logits.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-    
-    accuracy = 100 * correct / total if total > 0 else 0.0
-    return accuracy
+
+    accuracy = 100.0 * correct / total if total > 0 else 0.0
+    yield_mse = yield_se / total if total > 0 else 0.0
+    return accuracy, yield_mse
 
 
 # ----------------------------------------------------------------------
@@ -323,54 +336,74 @@ def evaluate(model, val_loader, device):
 
 def main():
     """Main training loop."""
-    import time
-    
     config = Config()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-    
+
+    # Ensure cache dir exists
+    cache_dir = os.path.expanduser(config.data_dir)
+    os.makedirs(cache_dir, exist_ok=True)
+
     # Create dataloaders
     train_loader, val_loader = get_dataloaders(config)
-    
+
     # Create model
     model = WasteClassifier(config).to(device)
-    print(f"Model parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.1f}M")
-    
+    num_params = sum(p.numel() for p in model.parameters()) / 1e6
+    print(f"Model parameters: {num_params:.1f}M")
+
     # Optimizer
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=config.learning_rate,
+        weight_decay=config.weight_decay,
+    )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.num_epochs)
     criterion = nn.CrossEntropyLoss()
-    
+
     # Training loop
     start_time = time.time()
     best_accuracy = 0.0
-    
+    best_model_state = None
+
     for epoch in range(config.num_epochs):
         epoch_start = time.time()
-        
-        loss, accuracy = train_epoch(model, train_loader, optimizer, criterion, config, device, epoch)
-        
+
+        loss, train_acc = train_epoch(model, train_loader, optimizer, criterion, config, device, epoch)
         scheduler.step()
-        
+
         epoch_time = time.time() - epoch_start
-        print(f"Epoch {epoch+1}/{config.num_epochs}: loss={loss:.4f}, accuracy={accuracy:.2f}%, time={epoch_time:.1f}s")
-        
-        if accuracy > best_accuracy:
-            best_accuracy = accuracy
-            # Save best model
-            torch.save(model.state_dict(), os.path.expanduser("~/.cache/autoresearch-waste/best_model.pt"))
-    
+        print(f"Epoch {epoch+1}/{config.num_epochs}: loss={loss:.4f}, train_acc={train_acc:.2f}%, time={epoch_time:.1f}s")
+
+        if train_acc > best_accuracy:
+            best_accuracy = train_acc
+            best_model_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+
+    # --- Validation ---
+    if val_loader is not None:
+        val_acc, yield_mse = evaluate(model, val_loader, device, config)
+    else:
+        val_acc, yield_mse = best_accuracy, 0.0
+
+    combined_score = val_acc - 0.1 * yield_mse
     total_time = time.time() - start_time
-    
-    # Report final results
-    print("\n" + "="*50)
-    print(f"val_accuracy:     {best_accuracy:.2f}")
+
+    # Save best model
+    if best_model_state is not None:
+        torch.save(best_model_state, os.path.join(cache_dir, "best_model.pt"))
+
+    # --- Required output format (parsed by program.md grep) ---
+    print("\n" + "=" * 50)
+    print(f"val_accuracy:     {val_acc:.2f}")
+    print(f"yield_mse:        {yield_mse:.4f}")
+    print(f"combined_score:   {combined_score:.2f}")
     print(f"training_seconds: {total_time:.1f}")
+    print(f"num_params_M:     {num_params:.1f}")
     if torch.cuda.is_available():
         print(f"peak_vram_mb:     {torch.cuda.max_memory_allocated() / 1e6:.1f}")
-    print("="*50)
-    
-    return best_accuracy
+    print("=" * 50)
+
+    return combined_score
 
 
 if __name__ == "__main__":
