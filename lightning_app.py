@@ -32,23 +32,62 @@ MAX_TIMEOUT   = 720   # 12 minutes hard kill timeout per job
 
 
 def get_studio() -> Studio:
-    """Connect to the Lightning AI Studio."""
-    kwargs = {"name": STUDIO_NAME}
-    if TEAMSPACE:
-        kwargs["teamspace"] = TEAMSPACE
-    if USER:
-        kwargs["user"] = USER
+    """Connect to the Lightning AI Studio with auto-detection."""
+    teamspace = os.environ.get("LIGHTNING_TEAMSPACE")
+    user = os.environ.get("LIGHTNING_USERNAME") or os.environ.get("LIGHTNING_USER_ID")
+
+    if not user or not teamspace:
+        try:
+            from lightning_sdk.lightning_cloud.rest_client import LightningClient
+            client = LightningClient()
+            if not user:
+                user_res = client.auth_service_get_user()
+                user = user_res.username
+            if not teamspace:
+                memberships_res = client.projects_service_list_memberships()
+                memberships = memberships_res.memberships
+                if memberships:
+                    default_memberships = [m for m in memberships if m.is_default]
+                    if default_memberships:
+                        teamspace = default_memberships[0].name
+                    else:
+                        teamspace = memberships[0].name
+                else:
+                    teamspace = "default"
+        except Exception as e:
+            print(f"Warning: Auto-detection of teamspace/user failed: {e}")
+            teamspace = teamspace or "default"
+            user = user or ""
+
+    kwargs = {"name": STUDIO_NAME, "teamspace": teamspace}
+    if user:
+        kwargs["user"] = user
+
+    print(f"Connecting to Studio '{STUDIO_NAME}' in teamspace '{teamspace}' (user: '{user}')...")
     studio = Studio(**kwargs)
     studio.start()
     return studio
 
 
+def get_current_branch() -> str:
+    import subprocess
+    try:
+        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).decode("utf-8").strip()
+        if branch == "HEAD":
+            return "main"
+        return branch
+    except Exception:
+        return "main"
+
+
 def run_single(studio: Studio) -> dict:
     """Submit one training experiment and wait for it to finish."""
     job_name = f"waste-single-{int(time.time())}"
+    branch = get_current_branch()
+    print(f"Using git branch '{branch}' for remote job execution.")
 
     setup_cmd = (
-        f"git clone {GITHUB_REPO} /tmp/autoresearch-waste && "
+        f"git clone --branch {branch} {GITHUB_REPO} /tmp/autoresearch-waste && "
         "cd /tmp/autoresearch-waste && "
         "pip install -q -e . && "
         "python train.py > run.log 2>&1 && "
@@ -87,10 +126,11 @@ def run_loop(studio: Studio, num_experiments: int = 100):
     tag = datetime.datetime.now().strftime("%b%d").lower()
     branch = f"autoresearch/{tag}"
     job_name = f"waste-loop-{tag}"
+    current_branch = get_current_branch()
 
     loop_cmd = f"""
 set -e
-git clone {GITHUB_REPO} /tmp/autoresearch-waste
+git clone --branch {current_branch} {GITHUB_REPO} /tmp/autoresearch-waste
 cd /tmp/autoresearch-waste
 pip install -q -e .
 git checkout -b {branch}
