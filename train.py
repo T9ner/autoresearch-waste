@@ -151,8 +151,8 @@ def get_dataloaders(config):
         ds1 = load_dataset("NeoAivara/Waste_Classification_data", split="train")
 
         total = len(ds1)
-        train_size = min(int(total * 0.85), 1000)
-        val_size = min(200, total - train_size)
+        train_size = min(int(total * 0.85), 5000)
+        val_size = min(1000, total - train_size)
 
         train_ds = WasteDataset(ds1.select(range(train_size)), config.image_size)
         val_ds   = WasteDataset(ds1.select(range(train_size, train_size + val_size)), config.image_size)
