@@ -36,7 +36,7 @@ import numpy as np
 @dataclass
 class Config:
     # Model architecture
-    model_type: str = "resnet18"  # resnet18, resnet34, efficientnet_b0, vit_base
+    model_type: str = "efficientnet_b0"  # resnet18, resnet34, efficientnet_b0, vit_base
     pretrained: bool = True
     
     # Training hyperparameters
