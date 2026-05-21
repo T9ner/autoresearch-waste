@@ -19,7 +19,7 @@ import argparse
 import os
 import time
 
-from lightning_sdk import Job, Machine, Studio
+from lightning_sdk import Job, Machine, Status, Studio
 
 # ============ CONFIG ============
 GITHUB_REPO   = "https://github.com/T9ner/autoresearch-waste.git"
@@ -80,7 +80,7 @@ def get_current_branch() -> str:
         return "main"
 
 
-def run_single(studio: Studio) -> dict:
+def run_single(studio: Studio, max_timeout: int = MAX_TIMEOUT) -> dict:
     """Submit one training experiment and wait for it to finish."""
     job_name = f"waste-single-{int(time.time())}"
     branch = get_current_branch()
@@ -101,23 +101,22 @@ def run_single(studio: Studio) -> dict:
         machine=GPU_MACHINE,
         studio=studio,
     )
-
     # Poll until done
     start = time.time()
-    while job.status not in ("Completed", "Failed", "Stopped"):
+    while job.status not in (Status.Completed, Status.Failed, Status.Stopped):
         elapsed = time.time() - start
-        print(f"  [{elapsed:.0f}s] status: {job.status} ...")
-        if elapsed > MAX_TIMEOUT:
-            print("  Timeout — stopping job.")
+        print(f"  [{elapsed:.0f}s] status: {job.status} ...", flush=True)
+        if elapsed > max_timeout:
+            print("  Timeout — stopping job.", flush=True)
             job.stop()
             return {"status": "timeout"}
         time.sleep(15)
 
     print(f"Job finished with status: {job.status}")
-    return {"status": job.status, "job_name": job_name}
+    return {"status": job.status.value if job.status else "unknown", "job_name": job_name}
 
 
-def run_loop(studio: Studio, num_experiments: int = 100):
+def run_loop(studio: Studio, num_experiments: int = 100, time_budget: int = TIME_BUDGET):
     """
     Submit the full autonomous research loop as a single long-running job.
     The job clones the repo, creates a branch, and runs the autoresearch loop.
@@ -149,7 +148,7 @@ for i in $(seq 1 {num_experiments}); do
   git commit -m "exp $i" || true
 
   # Run with timeout
-  timeout {TIME_BUDGET + 60} python train.py > run.log 2>&1
+  timeout {time_budget + 60} python train.py > run.log 2>&1
   EXIT_CODE=$?
 
   if [ $EXIT_CODE -ne 0 ]; then
@@ -221,16 +220,20 @@ def main():
                         help="Number of experiments for loop mode")
     parser.add_argument("--job", type=str, default="",
                         help="Job name to check status of")
+    parser.add_argument("--time-budget", type=int, default=TIME_BUDGET,
+                        help=f"Time budget in seconds per training run (default: {TIME_BUDGET})")
+    parser.add_argument("--max-timeout", type=int, default=7200,
+                        help="Maximum polling timeout in seconds for single run (default: 7200)")
     args = parser.parse_args()
 
     studio = get_studio()
 
     if args.mode == "single":
-        result = run_single(studio)
+        result = run_single(studio, max_timeout=args.max_timeout)
         print("\nResult:", result)
 
     elif args.mode == "loop":
-        job = run_loop(studio, num_experiments=args.experiments)
+        job = run_loop(studio, num_experiments=args.experiments, time_budget=args.time_budget)
         print(f"\nJob is running in background — close your terminal safely.")
         print(f"Results will be committed to: autoresearch/<today's tag> branch on GitHub")
 
@@ -238,10 +241,27 @@ def main():
         if not args.job:
             print("Provide --job <job_name> to check status")
         else:
-            # Lightning SDK doesn't have a direct Job.get() by name in all versions
-            # Check the Lightning AI dashboard or use the CLI:
-            print(f"Run: lightning status {args.job}")
-            print("Or check: https://lightning.ai (Jobs tab)")
+            try:
+                job = Job(name=args.job, teamspace=studio.teamspace)
+                print(f"Job '{args.job}' status: {job.status}")
+                if job.status in (Status.Completed, Status.Failed, Status.Stopped):
+                    print("\n--- Job Logs ---")
+                    try:
+                        logs = job.logs
+                        log_lines = logs.splitlines()
+                        if len(log_lines) > 30:
+                            print("... (truncated) ...")
+                            print("\n".join(log_lines[-30:]))
+                        else:
+                            print(logs)
+                    except Exception as le:
+                        print(f"Could not retrieve logs: {le}")
+                else:
+                    print("Job is still running. Check again later or monitor in the dashboard.")
+            except Exception as e:
+                print(f"Error fetching status for job '{args.job}': {e}")
+                print(f"Alternative - run CLI: lightning status {args.job}")
+                print("Or check: https://lightning.ai (Jobs tab)")
 
 
 if __name__ == "__main__":
