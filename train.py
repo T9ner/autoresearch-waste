@@ -83,6 +83,9 @@ class WasteDataset(torch.utils.data.Dataset):
     def __init__(self, hf_dataset, image_size=224):
         self.dataset = hf_dataset
         self.image_size = image_size
+        self.label_names = None
+        if hasattr(hf_dataset, 'features') and 'label' in hf_dataset.features:
+            self.label_names = hf_dataset.features['label'].names
     
     def __len__(self):
         return len(self.dataset)
@@ -118,6 +121,9 @@ class WasteDataset(torch.utils.data.Dataset):
             label = item['labels']
         else:
             label = 1
+            
+        if self.label_names and isinstance(label, int) and 0 <= label < len(self.label_names):
+            label = self.label_names[label]
             
         category = map_label_to_category(label)
         
