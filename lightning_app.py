@@ -22,13 +22,13 @@ import time
 from lightning_sdk import Job, Machine, Status, Studio
 
 # ============ CONFIG ============
-GITHUB_REPO   = "https://github.com/T9ner/autoresearch-waste.git"
-STUDIO_NAME   = "autoresearch-waste"          # Must match your Studio name in Lightning AI UI
-TEAMSPACE     = os.environ.get("LIGHTNING_TEAMSPACE", "")   # set if using a teamspace
-USER          = os.environ.get("LIGHTNING_USER_ID", "")
-GPU_MACHINE   = Machine.T4
-TIME_BUDGET   = 300   # 5 minutes per experiment (seconds)
-MAX_TIMEOUT   = 720   # 12 minutes hard kill timeout per job
+GITHUB_REPO = "https://github.com/T9ner/autoresearch-waste.git"
+STUDIO_NAME = "autoresearch-waste"  # Must match your Studio name in Lightning AI UI
+TEAMSPACE = os.environ.get("LIGHTNING_TEAMSPACE", "")  # set if using a teamspace
+USER = os.environ.get("LIGHTNING_USER_ID", "")
+GPU_MACHINE = Machine.T4
+TIME_BUDGET = 300  # 5 minutes per experiment (seconds)
+MAX_TIMEOUT = 720  # 12 minutes hard kill timeout per job
 
 
 def get_studio() -> Studio:
@@ -39,6 +39,7 @@ def get_studio() -> Studio:
     if not user or not teamspace:
         try:
             from lightning_sdk.lightning_cloud.rest_client import LightningClient
+
             client = LightningClient()
             if not user:
                 user_res = client.auth_service_get_user()
@@ -63,7 +64,9 @@ def get_studio() -> Studio:
     if user:
         kwargs["user"] = user
 
-    print(f"Connecting to Studio '{STUDIO_NAME}' in teamspace '{teamspace}' (user: '{user}')...")
+    print(
+        f"Connecting to Studio '{STUDIO_NAME}' in teamspace '{teamspace}' (user: '{user}')..."
+    )
     studio = Studio(**kwargs)
     studio.start()
     return studio
@@ -71,8 +74,13 @@ def get_studio() -> Studio:
 
 def get_current_branch() -> str:
     import subprocess
+
     try:
-        branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"]).decode("utf-8").strip()
+        branch = (
+            subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+            .decode("utf-8")
+            .strip()
+        )
         if branch == "HEAD":
             return "main"
         return branch
@@ -113,15 +121,21 @@ def run_single(studio: Studio, max_timeout: int = MAX_TIMEOUT) -> dict:
         time.sleep(15)
 
     print(f"Job finished with status: {job.status}")
-    return {"status": job.status.value if job.status else "unknown", "job_name": job_name}
+    return {
+        "status": job.status.value if job.status else "unknown",
+        "job_name": job_name,
+    }
 
 
-def run_loop(studio: Studio, num_experiments: int = 100, time_budget: int = TIME_BUDGET):
+def run_loop(
+    studio: Studio, num_experiments: int = 100, time_budget: int = TIME_BUDGET
+):
     """
     Submit the full autonomous research loop as a single long-running job.
     The job clones the repo, creates a branch, and runs the autoresearch loop.
     """
     import datetime
+
     tag = datetime.datetime.now().strftime("%b%d").lower()
     branch = f"autoresearch/{tag}"
     job_name = f"waste-loop-{tag}"
@@ -131,12 +145,12 @@ def run_loop(studio: Studio, num_experiments: int = 100, time_budget: int = TIME
 set -e
 git clone --branch {current_branch} {GITHUB_REPO} /tmp/autoresearch-waste
 cd /tmp/autoresearch-waste
+pip install -q -e .
 
-# Configure git credentials first
+# Configure Git before any commits in the experiment loop.
 git config user.email "autoresearch@lightning.ai"
 git config user.name "Autoresearch Bot"
 
-pip install -q -e .
 git checkout -b {branch}
 
 # Initialize results if missing
@@ -199,7 +213,9 @@ echo "Loop complete. Results in results.tsv"
 cat results.tsv
 """.strip()
 
-    print(f"Submitting overnight loop: {num_experiments} experiments on branch '{branch}'")
+    print(
+        f"Submitting overnight loop: {num_experiments} experiments on branch '{branch}'"
+    )
     print(f"Job name: {job_name}")
 
     job = Job.run(
@@ -217,17 +233,36 @@ cat results.tsv
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run autoresearch-waste on Lightning AI")
-    parser.add_argument("--mode", choices=["single", "loop", "status"], default="single",
-                        help="single=one experiment, loop=overnight, status=check job")
-    parser.add_argument("--experiments", type=int, default=100,
-                        help="Number of experiments for loop mode")
-    parser.add_argument("--job", type=str, default="",
-                        help="Job name to check status of")
-    parser.add_argument("--time-budget", type=int, default=TIME_BUDGET,
-                        help=f"Time budget in seconds per training run (default: {TIME_BUDGET})")
-    parser.add_argument("--max-timeout", type=int, default=7200,
-                        help="Maximum polling timeout in seconds for single run (default: 7200)")
+    parser = argparse.ArgumentParser(
+        description="Run autoresearch-waste on Lightning AI"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["single", "loop", "status"],
+        default="single",
+        help="single=one experiment, loop=overnight, status=check job",
+    )
+    parser.add_argument(
+        "--experiments",
+        type=int,
+        default=100,
+        help="Number of experiments for loop mode",
+    )
+    parser.add_argument(
+        "--job", type=str, default="", help="Job name to check status of"
+    )
+    parser.add_argument(
+        "--time-budget",
+        type=int,
+        default=TIME_BUDGET,
+        help=f"Time budget in seconds per training run (default: {TIME_BUDGET})",
+    )
+    parser.add_argument(
+        "--max-timeout",
+        type=int,
+        default=7200,
+        help="Maximum polling timeout in seconds for single run (default: 7200)",
+    )
     args = parser.parse_args()
 
     studio = get_studio()
@@ -237,9 +272,13 @@ def main():
         print("\nResult:", result)
 
     elif args.mode == "loop":
-        job = run_loop(studio, num_experiments=args.experiments, time_budget=args.time_budget)
+        job = run_loop(
+            studio, num_experiments=args.experiments, time_budget=args.time_budget
+        )
         print(f"\nJob is running in background — close your terminal safely.")
-        print(f"Results will be committed to: autoresearch/<today's tag> branch on GitHub")
+        print(
+            f"Results will be committed to: autoresearch/<today's tag> branch on GitHub"
+        )
 
     elif args.mode == "status":
         if not args.job:
@@ -261,7 +300,9 @@ def main():
                     except Exception as le:
                         print(f"Could not retrieve logs: {le}")
                 else:
-                    print("Job is still running. Check again later or monitor in the dashboard.")
+                    print(
+                        "Job is still running. Check again later or monitor in the dashboard."
+                    )
             except Exception as e:
                 print(f"Error fetching status for job '{args.job}': {e}")
                 print(f"Alternative - run CLI: lightning status {args.job}")
