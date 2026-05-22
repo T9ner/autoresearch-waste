@@ -32,6 +32,13 @@ env/
 *.swp
 *.swo
 
+# Local secrets / machine access keys
+root
+root.pub
+
+# Temporary debugging scripts
+scratch_*.py
+
 # Results (leave untracked)
 results.tsv
 run.log

@@ -166,9 +166,12 @@ for i in $(seq 1 {num_experiments}); do
   git add train.py
   git commit -m "exp $i" || true
 
-  # Run with timeout
+  # Run with timeout. Temporarily disable set -e so failed/timed-out experiments
+  # can be logged and skipped instead of stopping the entire loop.
+  set +e
   timeout {time_budget + 60} python train.py > run.log 2>&1
   EXIT_CODE=$?
+  set -e
 
   if [ $EXIT_CODE -ne 0 ]; then
     echo "Run failed or timed out (exit $EXIT_CODE)"
