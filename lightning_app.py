@@ -131,6 +131,11 @@ def run_loop(studio: Studio, num_experiments: int = 100, time_budget: int = TIME
 set -e
 git clone --branch {current_branch} {GITHUB_REPO} /tmp/autoresearch-waste
 cd /tmp/autoresearch-waste
+
+# Configure git credentials first
+git config user.email "autoresearch@lightning.ai"
+git config user.name "Autoresearch Bot"
+
 pip install -q -e .
 git checkout -b {branch}
 
@@ -187,10 +192,9 @@ for i in $(seq 1 {num_experiments}); do
 done
 
 # Push results branch
-git config user.email "autoresearch@lightning.ai"
-git config user.name "Autoresearch Bot"
-git add results.tsv run.log
+git add -f results.tsv run.log
 git commit -m "autoresearch results [{num_experiments} experiments]" || true
+git push origin {branch} || true
 echo "Loop complete. Results in results.tsv"
 cat results.tsv
 """.strip()
